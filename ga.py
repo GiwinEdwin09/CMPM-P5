@@ -7,7 +7,7 @@ import random
 import shutil
 import time
 import math
-import numpy as np
+
 width = 200
 height = 16
 
@@ -40,26 +40,22 @@ class Individual_Grid(object):
     # This can be expensive so we do it once and then cache the result.
     def calculate_fitness(self):
         measurements = metrics.metrics(self.to_level())
+        # Print out the possible measurements or look at the implementation of metrics.py for other keys:
+        # print(measurements.keys())
+        # Default fitness function: Just some arbitrary combination of a few criteria.  Is it good?  Who knows?
+        # STUDENT Modify this, and possibly add more metrics.  You can replace this with whatever code you like.
         coefficients = dict(
             meaningfulJumpVariance=0.5,
             negativeSpace=0.6,
             pathPercentage=0.5,
-            emptyPercentage=0.6,
+            emptyPercentage=0.7,
             linearity=-0.5,
-            solvability=2.0
+            solvability=1.0,
+            
+
         )
-        penalties = 0
-        # Penalize levels with too many enemies
-        enemy_count = sum(row.count('E') for row in self.genome)
-        if enemy_count > 5:
-            penalties -= 0.5 * (enemy_count - 5)
-        # Reward levels with a balanced distribution of tiles
-        tile_counts = {tile: sum(row.count(tile) for row in self.genome) for tile in options}
-        tile_variance = np.var(list(tile_counts.values()))
-        penalties -= 0.1 * tile_variance  # Penalize high variance in tile distribution
-        
         self._fitness = sum(map(lambda m: coefficients[m] * measurements[m],
-                                coefficients)) + penalties
+                                coefficients))
         return self
 
     # Return the cached fitness value or calculate it as needed.
@@ -70,30 +66,74 @@ class Individual_Grid(object):
 
     # Mutate a genome into a new genome.  Note that this is a _genome_, not an individual!
     def mutate(self, genome):
-        mutation_rate = 0.05
+        # STUDENT implement a mutation operator, also consider not mutating this individual
+        # STUDENT also consider weighting the different tile types so it's not uniformly random
+        # STUDENT consider putting more constraints on this to prevent pipes in the air, etc
+
         left = 1
         right = width - 1
         for y in range(height):
             for x in range(left, right):
-                if random.random() < mutation_rate:
-                    # Randomly change the tile to one of the options
-                    genome[y][x] = random.choice(options)
+                if(y == 14):
+                    if random.random() < 0.01:
+                        if(genome[y][x] == "-"):
+                            genome[y][x] = "E"
+                
+                if (y >= 8 and y <= 17):
+                    if random.random() < 0.018:
+                        if(genome[y][x] == "-"):
+                            genome[y][x] = "o"
+
+
+                if(genome[y][x] == "?"):
+                    if random.random() < 0.3:
+                        roll = random.randrange(1,4)
+                        if(roll == 1):
+                            genome[y][x] = "B"
+
+                if(genome[y][x] == "B"):
+                    if random.random() < 0.3:
+                        roll = random.randrange(1,4)
+                        if(roll == 1):
+                            genome[y][x] = "?"
+    
+
+                if(genome[y][x] == "M"):
+                    if random.random() < 0.25:
+                        roll = random.randrange(1,3)
+                        if(roll == 1):
+                            genome[y][x] = "?"
+                        else:
+                            genome[y][x] = "B"
+
         return genome
 
     # Create zero or more children from self and other
     def generate_children(self, other):
         new_genome = copy.deepcopy(self.genome)
+        # Leaving first and last columns alone...
+        # do crossover with other
         left = 1
         right = width - 1
         for y in range(height):
             for x in range(left, right):
-                # Uniform crossover: Randomly select from self or other
-                if random.random() < 0.5:
-                    new_genome[y][x] = self.genome[y][x]
+                # STUDENT Which one should you take?  Self, or other?  Why?
+
+                # STUDENT consider putting more constraints on this to prevent pipes in the air, etc
+                if(other.genome[y][x] == "X" or other.genome[y][x] == "T" or other.genome[y][x] == "|"):
+                    new_genome[y][x] = other.genome[y][x]
+                    continue
+
+                if self._fitness > other._fitness:
+                    if random.random() > 0.76:
+                        if(other.genome[y][x] != "T" or other.genome[y][x] != "X" or other.genome[y][x] != "|"):
+                            if(self.genome[y][x] != "T" and self.genome[y][x] != "|"):
+                                new_genome[y][x] = self.genome[y][x]
+                        continue
                 else:
                     new_genome[y][x] = other.genome[y][x]
-        # Do mutation; note we're returning a one-element tuple here
-        return (Individual_Grid(new_genome),)
+        # do mutation; note we're returning the Individual_Grid object directly
+        return Individual_Grid(new_genome)
 
     # Turn the genome into a level string (easy for this genome)
     def to_level(self):
@@ -168,7 +208,7 @@ class Individual_DE(object):
             pathPercentage=0.5,
             emptyPercentage=0.6,
             linearity=-0.5,
-            solvability=2.0
+            solvability=2.0,
         )
         penalties = 0
         # STUDENT For example, too many stairs are unaesthetic.  Let's penalize that
@@ -347,29 +387,48 @@ class Individual_DE(object):
 
 Individual = Individual_Grid
 
+def tournament_selection(population):
+    selected = []
+    best_one = None
+    population_copy = copy.deepcopy(population)
+    random.shuffle(population_copy)
+    if len(population_copy) < 2:
+        return population_copy
+    for i in range(0, len(population_copy)):
+        individual_1 = population_copy[i]
+        if best_one is None or individual_1.fitness() > best_one.fitness():
+            best_one = individual_1
+            selected.append(best_one)
+        else:
+            selected.append(individual_1)
+    return selected
 
+
+
+def random_selection(population):
+    selected = []
+    for i in population:
+        selected.append(population[random.randrange(0, len(population))])
+    return selected
+
+ 
 def generate_successors(population):
+    # STUDENT Design and implement this
+    # Hint: Call generate_children() on some individuals and fill up results.
     results = []
-    pop_size = len(population)
-    
-    # Elitist selection: Keep the top 10% of the population
-    elite_size = int(0.1 * pop_size)
-    elite = sorted(population, key=lambda ind: ind.fitness(), reverse=True)[:elite_size]
-    results.extend(elite)
-    
-    # Tournament selection for the rest of the population
-    tournament_size = 5
-    while len(results) < pop_size:
-        # Randomly select tournament_size individuals
-        tournament = random.sample(population, tournament_size)
-        # Select the best one from the tournament
-        winner = max(tournament, key=lambda ind: ind.fitness())
-        # Generate children using the winner and another randomly selected individual
-        other = random.choice(population)
-        children = winner.generate_children(other)
-        results.extend(children)
-    
-    return results[:pop_size]  # Ensure we don't exceed the population size
+    # Use tournament selection to select parents
+    selected_parents = tournament_selection(population)
+    # Use random selection to select additional parents (optional)
+    additional_parents = random_selection(population)
+    # Combine selected parents
+    all_parents = selected_parents + additional_parents
+    # Generate children using crossover and mutation
+    for i in range(0, len(all_parents) - 1, 2):
+        parent1 = all_parents[i]
+        parent2 = all_parents[i + 1]
+        child = parent1.generate_children(parent2)
+        results.append(child)
+    return results
 
 
 def ga():
@@ -406,7 +465,7 @@ def ga():
                     print("Max fitness:", str(best.fitness()))
                     print("Average generation time:", (now - start) / generation)
                     print("Net time:", now - start)
-                    with open("levels/last.txt", 'w') as f:
+                    with open("./levels/last.txt", 'w+') as f:
                         for row in best.to_level():
                             f.write("".join(row) + "\n")
                 generation += 1
