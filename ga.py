@@ -111,28 +111,17 @@ class Individual_Grid(object):
     # Create zero or more children from self and other
     def generate_children(self, other):
         new_genome = copy.deepcopy(self.genome)
-        # Leaving first and last columns alone...
-        # do crossover with other
         left = 1
         right = width - 1
+
         for y in range(height):
             for x in range(left, right):
-                # STUDENT Which one should you take?  Self, or other?  Why?
-
-                # STUDENT consider putting more constraints on this to prevent pipes in the air, etc
-                if(other.genome[y][x] == "X" or other.genome[y][x] == "T" or other.genome[y][x] == "|"):
+                if random.random() < 0.5:  # Uniform crossover
                     new_genome[y][x] = other.genome[y][x]
-                    continue
 
-                if self._fitness > other._fitness:
-                    if random.random() > 0.76:
-                        if(other.genome[y][x] != "T" or other.genome[y][x] != "X" or other.genome[y][x] != "|"):
-                            if(self.genome[y][x] != "T" and self.genome[y][x] != "|"):
-                                new_genome[y][x] = self.genome[y][x]
-                        continue
-                else:
-                    new_genome[y][x] = other.genome[y][x]
-        # do mutation; note we're returning the Individual_Grid object directly
+        # Mutate the child
+        mutated_genome = self.mutate(new_genome)
+            # do mutation; note we're returning the Individual_Grid object directly
         return Individual_Grid(new_genome)
 
     # Turn the genome into a level string (easy for this genome)
@@ -184,39 +173,31 @@ def clip(lo, val, hi):
 
 # Inspired by https://www.researchgate.net/profile/Philippe_Pasquier/publication/220867545_Towards_a_Generic_Framework_for_Automated_Video_Game_Level_Creation/links/0912f510ac2bed57d1000000.pdf
 
-
 class Individual_DE(object):
-    # Calculating the level isn't cheap either so we cache it too.
     __slots__ = ["genome", "_fitness", "_level"]
 
-    # Genome is a heapq of design elements sorted by X, then type, then other parameters
     def __init__(self, genome):
         self.genome = list(genome)
         heapq.heapify(self.genome)
         self._fitness = None
         self._level = None
 
-    # Calculate and cache fitness
     def calculate_fitness(self):
         measurements = metrics.metrics(self.to_level())
-        # Default fitness function: Just some arbitrary combination of a few criteria.  Is it good?  Who knows?
-        # STUDENT Add more metrics?
-        # STUDENT Improve this with any code you like
         coefficients = dict(
             meaningfulJumpVariance=0.5,
             negativeSpace=0.6,
             pathPercentage=0.5,
             emptyPercentage=0.6,
             linearity=-0.5,
-            solvability=2.0,
+            solvability=2.0
         )
         penalties = 0
-        # STUDENT For example, too many stairs are unaesthetic.  Let's penalize that
-        if len(list(filter(lambda de: de[1] == "6_stairs", self.genome))) > 5:
+        # Example penalty if too many stairs:
+        if len([de for de in self.genome if de[1] == "6_stairs"]) > 5:
             penalties -= 2
-        # STUDENT If you go for the FI-2POP extra credit, you can put constraint calculation in here too and cache it in a new entry in __slots__.
-        self._fitness = sum(map(lambda m: coefficients[m] * measurements[m],
-                                coefficients)) + penalties
+
+        self._fitness = sum(coefficients[m] * measurements[m] for m in coefficients) + penalties
         return self
 
     def fitness(self):
@@ -225,210 +206,164 @@ class Individual_DE(object):
         return self._fitness
 
     def mutate(self, new_genome):
-        # STUDENT How does this work?  Explain it in your writeup.
-        # STUDENT consider putting more constraints on this, to prevent generating weird things
         if random.random() < 0.1 and len(new_genome) > 0:
-            to_change = random.randint(0, len(new_genome) - 1)
-            de = new_genome[to_change]
-            new_de = de
-            x = de[0]
-            de_type = de[1]
-            choice = random.random()
-            if de_type == "4_block":
-                y = de[2]
-                breakable = de[3]
-                if choice < 0.33:
-                    x = offset_by_upto(x, width / 8, min=1, max=width - 2)
-                elif choice < 0.66:
-                    y = offset_by_upto(y, height / 2, min=0, max=height - 1)
-                else:
-                    breakable = not de[3]
-                new_de = (x, de_type, y, breakable)
-            elif de_type == "5_qblock":
-                y = de[2]
-                has_powerup = de[3]  # boolean
-                if choice < 0.33:
-                    x = offset_by_upto(x, width / 8, min=1, max=width - 2)
-                elif choice < 0.66:
-                    y = offset_by_upto(y, height / 2, min=0, max=height - 1)
-                else:
-                    has_powerup = not de[3]
-                new_de = (x, de_type, y, has_powerup)
-            elif de_type == "3_coin":
-                y = de[2]
-                if choice < 0.5:
-                    x = offset_by_upto(x, width / 8, min=1, max=width - 2)
-                else:
-                    y = offset_by_upto(y, height / 2, min=0, max=height - 1)
-                new_de = (x, de_type, y)
-            elif de_type == "7_pipe":
-                h = de[2]
-                if choice < 0.5:
-                    x = offset_by_upto(x, width / 8, min=1, max=width - 2)
-                else:
-                    h = offset_by_upto(h, 2, min=2, max=height - 4)
-                new_de = (x, de_type, h)
-            elif de_type == "0_hole":
-                w = de[2]
-                if choice < 0.5:
-                    x = offset_by_upto(x, width / 8, min=1, max=width - 2)
-                else:
-                    w = offset_by_upto(w, 4, min=1, max=width - 2)
-                new_de = (x, de_type, w)
-            elif de_type == "6_stairs":
-                h = de[2]
-                dx = de[3]  # -1 or 1
-                if choice < 0.33:
-                    x = offset_by_upto(x, width / 8, min=1, max=width - 2)
-                elif choice < 0.66:
-                    h = offset_by_upto(h, 8, min=1, max=height - 4)
-                else:
-                    dx = -dx
-                new_de = (x, de_type, h, dx)
-            elif de_type == "1_platform":
-                w = de[2]
-                y = de[3]
-                madeof = de[4]  # from "?", "X", "B"
-                if choice < 0.25:
-                    x = offset_by_upto(x, width / 8, min=1, max=width - 2)
-                elif choice < 0.5:
-                    w = offset_by_upto(w, 8, min=1, max=width - 2)
-                elif choice < 0.75:
-                    y = offset_by_upto(y, height, min=0, max=height - 1)
-                else:
-                    madeof = random.choice(["?", "X", "B"])
-                new_de = (x, de_type, w, y, madeof)
-            elif de_type == "2_enemy":
-                pass
-            new_genome.pop(to_change)
-            heapq.heappush(new_genome, new_de)
+            idx = random.randint(0, len(new_genome) - 1)
+            de = new_genome[idx]
+            new_genome.pop(idx)
         return new_genome
 
     def generate_children(self, other):
-        # STUDENT How does this work?  Explain it in your writeup.
+        if len(self.genome) == 0 or len(other.genome) == 0:
+            return copy.deepcopy(self), copy.deepcopy(other)
+
         pa = random.randint(0, len(self.genome) - 1)
         pb = random.randint(0, len(other.genome) - 1)
-        a_part = self.genome[:pa] if len(self.genome) > 0 else []
-        b_part = other.genome[pb:] if len(other.genome) > 0 else []
-        ga = a_part + b_part
-        b_part = other.genome[:pb] if len(other.genome) > 0 else []
-        a_part = self.genome[pa:] if len(self.genome) > 0 else []
-        gb = b_part + a_part
-        # do mutation
-        return Individual_DE(self.mutate(ga)), Individual_DE(self.mutate(gb))
 
-    # Apply the DEs to a base level.
+        a_part = self.genome[:pa]
+        b_part = other.genome[pb:]
+        ga = a_part + b_part
+
+        b_part = other.genome[:pb]
+        a_part = self.genome[pa:]
+        gb = b_part + a_part
+
+        # Mutate children
+        ga = self.mutate(ga)
+        gb = self.mutate(gb)
+
+        # Return **two** separate `Individual_DE` objects instead of a tuple
+        return Individual_DE(ga), Individual_DE(gb)
+
     def to_level(self):
         if self._level is None:
             base = Individual_Grid.empty_individual().to_level()
-            for de in sorted(self.genome, key=lambda de: (de[1], de[0], de)):
-                # de: x, type, ...
+            for de in sorted(self.genome, key=lambda d: (d[1], d[0], d)):
                 x = de[0]
                 de_type = de[1]
                 if de_type == "4_block":
+                    # (x, "4_block", y, breakable)
                     y = de[2]
                     breakable = de[3]
+                    # place a 'B' if breakable else 'X'
                     base[y][x] = "B" if breakable else "X"
+
                 elif de_type == "5_qblock":
+                    # (x, "5_qblock", y, has_powerup)
                     y = de[2]
-                    has_powerup = de[3]  # boolean
+                    has_powerup = de[3]  # bool
                     base[y][x] = "M" if has_powerup else "?"
+
                 elif de_type == "3_coin":
+                    # (x, "3_coin", y)
                     y = de[2]
                     base[y][x] = "o"
+
                 elif de_type == "7_pipe":
+                    # (x, "7_pipe", h)
                     h = de[2]
-                    base[height - h - 1][x] = "T"
-                    for y in range(height - h, height):
-                        base[y][x] = "|"
+                    # Put pipe top at row = height - h - 1
+                    top_row = height - h - 1
+                    if 0 <= top_row < height:
+                        base[top_row][x] = "T"
+                    # Fill the pipe below that top row
+                    for row in range(top_row + 1, height):
+                        if 0 <= row < height:
+                            base[row][x] = "|"
+
                 elif de_type == "0_hole":
+                    # (x, "0_hole", w)
                     w = de[2]
-                    for x2 in range(w):
-                        base[height - 1][clip(1, x + x2, width - 2)] = "-"
+                    # Make a hole of width w in the floor
+                    for dx in range(w):
+                        xx = x + dx
+                        if 1 <= xx < width - 1:
+                            base[height - 1][xx] = "-"
+
                 elif de_type == "6_stairs":
-                    h = de[2]
-                    dx = de[3]  # -1 or 1
-                    for x2 in range(1, h + 1):
-                        for y in range(x2 if dx == 1 else h - x2):
-                            base[clip(0, height - y - 1, height - 1)][clip(1, x + x2, width - 2)] = "X"
+                    # (x, "6_stairs", h, dx)
+                    h_stairs = de[2]
+                    direction = de[3]  # -1 or +1
+                    for step in range(1, h_stairs + 1):
+                        real_x = x + step * direction
+                        row = height - 1 - step
+                        if 0 <= real_x < width and 0 <= row < height:
+                            base[row][real_x] = "X"
+
                 elif de_type == "1_platform":
-                    w = de[2]
-                    h = de[3]
-                    madeof = de[4]  # from "?", "X", "B"
-                    for x2 in range(w):
-                        base[clip(0, height - h - 1, height - 1)][clip(1, x + x2, width - 2)] = madeof
+                    # (x, "1_platform", w, y, madeof)
+                    w_plat = de[2]
+                    y_plat = de[3]
+                    tile = de[4]  # "?", "X", or "B"
+                    for dx in range(w_plat):
+                        xx = x + dx
+                        if 0 <= xx < width and 0 <= y_plat < height:
+                            base[y_plat][xx] = tile
+
                 elif de_type == "2_enemy":
-                    base[height - 2][x] = "E"
+                    # (x, "2_enemy")
+                    # place an enemy somewhere near the floor (or at height-2)
+                    if 0 <= x < width:
+                        base[height - 2][x] = "E"
+
             self._level = base
         return self._level
 
     @classmethod
     def empty_individual(_cls):
-        # STUDENT Maybe enhance this
         g = []
         return Individual_DE(g)
 
     @classmethod
     def random_individual(_cls):
-        # STUDENT Maybe enhance this
         elt_count = random.randint(8, 128)
-        g = [random.choice([
-            (random.randint(1, width - 2), "0_hole", random.randint(1, 8)),
-            (random.randint(1, width - 2), "1_platform", random.randint(1, 8), random.randint(0, height - 1), random.choice(["?", "X", "B"])),
-            (random.randint(1, width - 2), "2_enemy"),
-            (random.randint(1, width - 2), "3_coin", random.randint(0, height - 1)),
-            (random.randint(1, width - 2), "4_block", random.randint(0, height - 1), random.choice([True, False])),
-            (random.randint(1, width - 2), "5_qblock", random.randint(0, height - 1), random.choice([True, False])),
-            (random.randint(1, width - 2), "6_stairs", random.randint(1, height - 4), random.choice([-1, 1])),
-            (random.randint(1, width - 2), "7_pipe", random.randint(2, height - 4))
-        ]) for i in range(elt_count)]
+        g = []
+        for _ in range(elt_count):
+            # Pick a random design element from the skeleton's set:
+            g.append(random.choice([
+                (random.randint(1, width - 2), "0_hole", random.randint(1, 8)),
+                (random.randint(1, width - 2), "1_platform", random.randint(1, 8),
+                 random.randint(0, height - 1), random.choice(["?", "X", "B"])),
+                (random.randint(1, width - 2), "2_enemy"),
+                (random.randint(1, width - 2), "3_coin", random.randint(0, height - 1)),
+                (random.randint(1, width - 2), "4_block", random.randint(0, height - 1),
+                 random.choice([True, False])),
+                (random.randint(1, width - 2), "5_qblock", random.randint(0, height - 1),
+                 random.choice([True, False])),
+                (random.randint(1, width - 2), "6_stairs", random.randint(1, height - 4),
+                 random.choice([-1, 1])),
+                (random.randint(1, width - 2), "7_pipe", random.randint(2, height - 4))
+            ]))
         return Individual_DE(g)
 
+# Individual = Individual_Grid
+Individual = Individual_DE
 
-Individual = Individual_Grid
+def tournament_selection(pop, k=4):
+    # Pick k random individuals, return the best among them.
+    candidates = random.sample(pop, k)
+    candidates.sort(key=lambda ind: ind.fitness(), reverse=True)
+    return candidates[0]
 
-def tournament_selection(population):
-    selected = []
-    best_one = None
-    population_copy = copy.deepcopy(population)
-    random.shuffle(population_copy)
-    if len(population_copy) < 2:
-        return population_copy
-    for i in range(0, len(population_copy)):
-        individual_1 = population_copy[i]
-        if best_one is None or individual_1.fitness() > best_one.fitness():
-            best_one = individual_1
-            selected.append(best_one)
-        else:
-            selected.append(individual_1)
-    return selected
-
-
-
-def random_selection(population):
-    selected = []
-    for i in population:
-        selected.append(population[random.randrange(0, len(population))])
-    return selected
-
- 
 def generate_successors(population):
-    # STUDENT Design and implement this
-    # Hint: Call generate_children() on some individuals and fill up results.
+    # Generate a new population using tournament selection and crossover.
     results = []
-    # Use tournament selection to select parents
-    selected_parents = tournament_selection(population)
-    # Use random selection to select additional parents (optional)
-    additional_parents = random_selection(population)
-    # Combine selected parents
+    selected_parents = [tournament_selection(population) for _ in range(len(population) // 2)]
+    additional_parents = [random.choice(population) for _ in range(len(population) // 2)]
     all_parents = selected_parents + additional_parents
-    # Generate children using crossover and mutation
+
     for i in range(0, len(all_parents) - 1, 2):
         parent1 = all_parents[i]
         parent2 = all_parents[i + 1]
-        child = parent1.generate_children(parent2)
-        results.append(child)
+        children = parent1.generate_children(parent2)  # ✅ Expecting 1 or 2 children
+
+        # ✅ Make sure each child is added separately
+        if isinstance(children, tuple):  # If two children are returned
+            results.extend(children)
+        else:  # If only one child is returned
+            results.append(children)
+
     return results
+
 
 
 def ga():
